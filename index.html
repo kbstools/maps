@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>King's Bakeshop - Custom Map Network</title>
     
-    <!-- Tailwind CSS for modern interface panels -->
+    <!-- Tailwind CSS for sidebar & panel grids -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Leaflet CSS for maps -->
+    <!-- Leaflet CSS for smooth map plotting -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
-    <!-- FontAwesome for custom map pin markers -->
+    <!-- FontAwesome for interactive navigation icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     
     <!-- Inter Font Family -->
@@ -28,29 +28,45 @@
         #map {
             width: 100vw;
             height: 100vh;
+            z-index: 10;
         }
         .custom-div-icon {
             background: none;
             border: none;
         }
-        /* Sleek custom popup customization */
-        .leaflet-popup-content-wrapper {
-            border-radius: 16px;
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
-            padding: 0px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            background: rgba(255, 255, 255, 0.98);
-            backdrop-filter: blur(8px);
-            overflow: hidden;
+        /* Active Selection Ring (mirrors the halo shown in image_db3751.jpg) */
+        .active-pin-halo {
+            position: relative;
         }
-        .leaflet-popup-content {
-            margin: 0 !important;
-            width: 300px !important;
+        .active-pin-halo::before {
+            content: '';
+            position: absolute;
+            top: -12px;
+            left: -12px;
+            width: 58px;
+            height: 58px;
+            background: rgba(255, 255, 255, 0.4);
+            border: 3px solid #ffffff;
+            border-radius: 50%;
+            z-index: -1;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+            animation: pulse-ring 2s infinite ease-out;
         }
-        .leaflet-popup-tip {
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        @keyframes pulse-ring {
+            0% { transform: scale(0.9); opacity: 1; }
+            100% { transform: scale(1.15); opacity: 0; }
         }
-        /* Premium custom toggle controls */
+        /* Custom sidebar panel styling (matches image_db3751.jpg) */
+        #detail-sidebar {
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 10px 0 30px rgba(0, 0, 0, 0.15);
+        }
+        .sidebar-hidden {
+            transform: translateX(-105%);
+        }
+        .sidebar-visible {
+            transform: translateX(0);
+        }
         .floating-control-btn {
             background: rgba(255, 255, 255, 0.95);
             backdrop-filter: blur(8px);
@@ -60,16 +76,15 @@
             font-size: 11px;
             font-weight: 600;
             color: #334155;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.08);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08);
             display: flex;
             align-items: center;
             gap: 8px;
             cursor: pointer;
-            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.25s ease;
         }
         .floating-control-btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
             color: #ea580c;
             border-color: #ffedd5;
         }
@@ -84,24 +99,84 @@
 </head>
 <body class="relative h-screen w-screen select-none">
 
-    <!-- Fullscreen Map Canvas -->
+    <!-- Left Google-My-Maps Style Sidebar (resembling layout in image_db3751.jpg) -->
+    <div id="detail-sidebar" class="absolute left-0 top-0 bottom-0 w-full sm:w-[380px] bg-white z-[1000] flex flex-col sidebar-hidden">
+        
+        <!-- Top Branch Photo -->
+        <div class="w-full h-52 relative bg-slate-100 overflow-hidden shrink-0">
+            <img id="sidebar-photo" src="" class="w-full h-full object-cover" onerror="this.src='https://images.unsplash.com/photo-1509440159596-0249088772ff?q=80&w=600&auto=format&fit=crop'">
+            <div class="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent"></div>
+        </div>
+
+        <!-- Red Navigation Header (Mirrors image_db3751.jpg style exactly) -->
+        <div class="bg-[#c62828] text-white p-4 flex items-center justify-between shadow-md shrink-0">
+            <div class="flex items-center gap-3 min-w-0">
+                <button onclick="closeSidebar()" class="p-1.5 hover:bg-black/10 rounded-full transition-all text-white flex items-center justify-center" title="Bumalik">
+                    <i class="fa-solid fa-arrow-left text-lg"></i>
+                </button>
+                <div class="min-w-0">
+                    <p class="text-[11px] text-red-200 uppercase tracking-wider font-semibold">King's Bakeshop</p>
+                    <h3 id="sidebar-title" class="font-bold text-sm sm:text-base leading-tight truncate">Store Name</h3>
+                </div>
+            </div>
+            <a id="sidebar-directions-btn" href="#" target="_blank" class="w-10 h-10 bg-white hover:bg-slate-100 text-[#c62828] rounded-full flex items-center justify-center shadow-lg hover:scale-105 transition-all shrink-0 ml-2" title="Kumuha ng Direksyon">
+                <i class="fa-solid fa-diamond-turn-right text-lg"></i>
+            </a>
+        </div>
+
+        <!-- Sidebar Content Body -->
+        <div class="flex-1 overflow-y-auto p-5 space-y-5">
+            <!-- Label Item -->
+            <div>
+                <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Pangalan</span>
+                <p id="sidebar-meta-name" class="text-sm font-semibold text-slate-800 mt-1">King's Bakeshop</p>
+            </div>
+
+            <!-- Custom Info Segment -->
+            <div class="border-t border-slate-100 pt-4">
+                <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Mga detalye mula sa Google Maps</span>
+                
+                <div class="mt-3 space-y-4">
+                    <!-- Address Block -->
+                    <div class="flex items-start gap-3">
+                        <div class="text-[#c62828] mt-0.5"><i class="fa-solid fa-location-dot"></i></div>
+                        <p id="sidebar-address" class="text-xs text-slate-600 leading-relaxed">Niloload...</p>
+                    </div>
+
+                    <!-- Contact Block -->
+                    <div class="flex items-center gap-3">
+                        <div class="text-[#c62828]"><i class="fa-solid fa-phone"></i></div>
+                        <p id="sidebar-phone" class="text-xs text-slate-600">Niloload...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Additional description box -->
+            <div id="sidebar-desc-container" class="border-t border-slate-100 pt-4 hidden">
+                <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Karagdagang Impormasyon</span>
+                <p id="sidebar-description" class="text-xs text-slate-600 mt-2 leading-relaxed"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Map Canvas Elements -->
     <div id="map"></div>
 
-    <!-- Floating Map Style / Layer Switcher -->
-    <div class="absolute bottom-6 left-6 z-[1000] flex flex-col gap-3">
+    <!-- Floating Style / Layer Controller -->
+    <div class="absolute bottom-6 left-6 z-[900] flex flex-col gap-3">
         <button id="layer-toggle-btn" class="floating-control-btn">
             <i class="fa-solid fa-earth-asia text-orange-500 text-[13px]"></i> <span>Switch to Satellite Imagery</span>
         </button>
     </div>
 
-    <!-- Non-intrusive beautiful overlay while fetching KML data -->
+    <!-- Interactive Synchronization Overlay -->
     <div id="loading-overlay" class="absolute inset-0 bg-slate-950/90 backdrop-blur-md z-[2000] flex flex-col items-center justify-center transition-all duration-700">
         <div class="text-center p-8 bg-white/95 rounded-2xl shadow-2xl max-w-sm border border-slate-100 mx-4">
             <div class="w-16 h-16 bg-orange-50 text-orange-500 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl shadow-inner animate-pulse">
                 <i class="fa-solid fa-map-location-dot"></i>
             </div>
-            <h2 class="text-base font-bold text-slate-800">Syncing Map Assets</h2>
-            <p class="text-[11px] text-slate-400 mt-1 leading-relaxed">Loading custom KML layers, branch photos, and configurations directly from your GitHub directory...</p>
+            <h2 class="text-base font-bold text-slate-800">Syncing Live Map Data</h2>
+            <p id="loading-status" class="text-[11px] text-slate-400 mt-1 leading-relaxed">Connecting directly to your live Google My Maps layers...</p>
             
             <div class="w-full bg-slate-100 h-1.5 rounded-full mt-5 overflow-hidden">
                 <div class="bg-orange-500 h-full w-1/3 loader-bar rounded-full"></div>
@@ -109,45 +184,33 @@
         </div>
     </div>
 
-    <!-- Hidden Quick Config Panel (In case of path configuration issues) -->
-    <div id="fallback-ui" class="absolute inset-0 bg-slate-900/95 z-[1500] hidden flex-col items-center justify-center p-4">
-        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100">
-            <h4 class="font-bold text-slate-800 mb-2 flex items-center gap-2">
-                <i class="fa-solid fa-triangle-exclamation text-orange-500"></i> Local KML File Not Found
-            </h4>
-            <p class="text-xs text-slate-500 mb-4 leading-relaxed">We could not locate your hosted <strong>map.kml</strong> file in this folder. To deploy this map on your GitHub repository, upload your exported map KML to the exact same folder and name it <strong>map.kml</strong>.</p>
-            
-            <div class="border-t border-slate-100 pt-4 flex flex-col gap-3">
-                <p class="text-[11px] font-semibold text-slate-600">Temporary Test: Upload your KML directly to preview now:</p>
-                <input type="file" id="fallback-uploader" accept=".kml" class="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100 cursor-pointer">
-            </div>
-        </div>
-    </div>
-
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <script>
-        const KML_FILENAME = "map.kml";
+        const GOOGLE_MAP_ID = "1zwlBnn2gCZ6pQKwjqe_u2SBOLN-1z-k";
+        const DIRECT_KML_URL = `https://www.google.com/maps/d/u/0/kml?mid=${GOOGLE_MAP_ID}&forcekml=1`;
+        const PROXY_URL = `https://api.allorigins.win/raw?url=${encodeURIComponent(DIRECT_KML_URL)}`;
         
         var map;
         var activeMarkers = [];
         var streetLayer;
         var satelliteLayer;
         var currentTheme = 'street'; 
+        var activeMarkerNode = null;
 
         window.onload = function() {
-            // Setup Map viewport centered over Philippines / Metro Manila
+            // Setup Map viewport centered over Metro Manila
             map = L.map('map', {
                 zoomControl: false,
                 attributionControl: false
             }).setView([14.5995, 120.9842], 12);
 
-            // 1. Clean Map Layout (Strips competitors, clean roads)
+            // 1. Clean Vector Map
             streetLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
                 maxZoom: 20
             });
 
-            // 2. High-Resolution Satellite view
+            // 2. High-Resolution Satellite View
             satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
                 maxZoom: 19
             });
@@ -158,9 +221,8 @@
 
             document.getElementById('layer-toggle-btn').addEventListener('click', toggleMapLayer);
 
-            // Fetch map.kml from your GitHub Repository
-            loadKMLDataset(KML_FILENAME);
-            setupFallbackReader();
+            // Fetch live Google My Maps stream
+            loadLiveGoogleDataset();
         };
 
         function toggleMapLayer() {
@@ -182,10 +244,14 @@
             }
         }
 
-        function loadKMLDataset(filePath) {
-            fetch(filePath)
+        function loadLiveGoogleDataset() {
+            const statusEl = document.getElementById('loading-status');
+            statusEl.textContent = "Connecting to Google Maps directory...";
+            
+            fetch(PROXY_URL)
                 .then(response => {
-                    if (!response.ok) throw new Error("Could not load local file: " + filePath);
+                    if (!response.ok) throw new Error("CORS Proxy retrieval failed");
+                    statusEl.textContent = "Parsing live bakeshop locations...";
                     return response.text();
                 })
                 .then(kmlContent => {
@@ -194,44 +260,24 @@
                         plotMarkers(locations);
                         hideLoader();
                     } else {
-                        throw new Error("Parsed KML contained no points.");
+                        throw new Error("No branches parsed from Google stream.");
                     }
                 })
                 .catch(err => {
-                    console.warn("Relative map.kml load failed. Activating fallback panel.", err);
-                    showFallbackUI();
+                    console.error("Live Google My Maps Sync failed, using local fallback...", err);
+                    statusEl.textContent = "Using cached offline layers...";
+                    // Fallback to local map.xml/map.kml if present in folder
+                    fetch('map.kml')
+                        .then(res => res.text())
+                        .then(fallbackText => {
+                            const fallbackLocs = parseKML(fallbackText);
+                            plotMarkers(fallbackLocs);
+                            hideLoader();
+                        })
+                        .catch(err2 => {
+                            statusEl.innerHTML = "<span class='text-red-500 font-semibold'>Offline: Connect your repo to map.kml or internet.</span>";
+                        });
                 });
-        }
-
-        function extractImageAndCleanDesc(descHtml) {
-            let imgUrl = "";
-            let cleanDesc = descHtml;
-            
-            // 1. Try to extract standard img tags
-            const imgRegex = /<img[^>]+src=["']([^"']+)["']/i;
-            const match = imgRegex.exec(descHtml);
-            if (match) {
-                imgUrl = match[1];
-            }
-            
-            // 2. Try to locate standard googleusercontent URLs
-            if (!imgUrl) {
-                const urlRegex = /(https:\/\/lh[0-9]+\.googleusercontent\.com\/[^\s"<>'\)]+)/i;
-                const urlMatch = urlRegex.exec(descHtml);
-                if (urlMatch) {
-                    imgUrl = urlMatch[1];
-                }
-            }
-            
-            // 3. Strip all HTML tags to leave a clean textual description
-            cleanDesc = descHtml.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-            
-            // 4. Fallback if description text is completely empty
-            if (cleanDesc.startsWith('http') || cleanDesc.length < 2) {
-                cleanDesc = "King's Bakeshop premium branch location.";
-            }
-            
-            return { imgUrl, cleanDesc };
         }
 
         function parseKML(kmlText) {
@@ -245,25 +291,74 @@
                     let pm = placemarks[i];
                     let rawName = pm.getElementsByTagName("name")[0]?.textContent || "King's Bakeshop";
                     
-                    // Clean up display name (e.g. remove trailing dashes)
+                    // Clean trailing dashes or numbers in the name
                     let name = rawName.replace(/\s*-\s*$/, "").trim();
                     let descNode = pm.getElementsByTagName("description")[0]?.textContent || "";
                     
-                    // Parse out both the photo URL and clean textual metadata
-                    let { imgUrl, cleanDesc } = extractImageAndCleanDesc(descNode);
-                    let coordNode = pm.getElementsByTagName("coordinates")[0];
+                    // Retrieve structured metadata fields directly if exported from Google My Maps database
+                    let address = "";
+                    let phone = "";
+                    let imgUrl = "";
 
-                    // Look for media attachments inside ExtendedData if description was empty
+                    // 1. Try reading ExtendedData elements (Google's standardized export schema)
                     let extendedData = pm.getElementsByTagName("ExtendedData")[0];
-                    if (extendedData && !imgUrl) {
+                    if (extendedData) {
                         let dataNodes = extendedData.getElementsByTagName("Data");
-                        for (let j = 0; j < dataNodes.length; j++) {
-                            if (dataNodes[j].getAttribute("name") === "gx_media_links") {
-                                imgUrl = dataNodes[j].getElementsByTagName("value")[0]?.textContent || "";
+                        for (let d = 0; d < dataNodes.length; d++) {
+                            let nameAttr = dataNodes[d].getAttribute("name");
+                            let valNode = dataNodes[d].getElementsByTagName("value")[0];
+                            let valText = valNode ? valNode.textContent.trim() : "";
+                            
+                            if (nameAttr === "gx_media_links") {
+                                imgUrl = valText;
+                            } else if (nameAttr === "address") {
+                                address = valText;
+                            } else if (nameAttr === "phone" || nameAttr === "phone_number") {
+                                phone = valText;
                             }
                         }
                     }
 
+                    // 2. Fallbacks for individual tag nodes
+                    if (!address) {
+                        let addrNode = pm.getElementsByTagName("address")[0];
+                        if (addrNode) address = addrNode.textContent.trim();
+                    }
+                    if (!phone) {
+                        let phoneNode = pm.getElementsByTagName("phoneNumber")[0];
+                        if (phoneNode) phone = phoneNode.textContent.trim();
+                    }
+
+                    // 3. Fallback to parse from Description HTML if description CDATA is populated
+                    let cleanDesc = "";
+                    if (descNode) {
+                        if (!imgUrl) {
+                            const imgRegex = /<img[^>]+src=["']([^"']+)["']/i;
+                            const match = imgRegex.exec(descNode);
+                            if (match) imgUrl = match[1];
+                        }
+                        
+                        let tempDiv = document.createElement("div");
+                        tempDiv.innerHTML = descNode;
+                        const text = tempDiv.textContent || tempDiv.innerText || "";
+                        const lines = text.split("\n");
+                        
+                        lines.forEach(line => {
+                            if (!address && (line.toLowerCase().includes("address:") || line.toLowerCase().includes("lugar:") || line.toLowerCase().includes("manila") || line.toLowerCase().includes("999") || line.toLowerCase().includes("floor"))) {
+                                address = line.replace(/address:|lugar:/i, "").trim();
+                            } else if (!phone && (line.toLowerCase().includes("phone:") || line.toLowerCase().includes("contact:") || line.toLowerCase().includes("+63") || line.toLowerCase().includes("telepono"))) {
+                                phone = line.replace(/phone:|contact:|telepono:/i, "").trim();
+                            } else if (line.trim().length > 3 && !line.includes("http")) {
+                                cleanDesc += line.trim() + " ";
+                            }
+                        });
+                    }
+
+                    // Strict presentation defaults
+                    if (!address) address = "Refer to Google Maps for exact location details.";
+                    if (!phone) phone = "Contact numbers currently unavailable.";
+
+                    let coordNode = pm.getElementsByTagName("coordinates")[0];
                     if (coordNode) {
                         let coordStr = coordNode.textContent.trim();
                         let parts = coordStr.split(",");
@@ -271,7 +366,15 @@
                             let lng = parseFloat(parts[0].trim());
                             let lat = parseFloat(parts[1].trim());
                             if (!isNaN(lat) && !isNaN(lng)) {
-                                points.push({ name: name, desc: cleanDesc, img: imgUrl, lat: lat, lng: lng });
+                                points.push({ 
+                                    name: name, 
+                                    desc: cleanDesc.trim() || "King's Bakeshop branch outlet.", 
+                                    address: address,
+                                    phone: phone,
+                                    img: imgUrl, 
+                                    lat: lat, 
+                                    lng: lng 
+                                });
                             }
                         }
                     }
@@ -288,11 +391,11 @@
             var bounds = [];
 
             locations.forEach(loc => {
-                // Customized Orange Brand Pin Styling
+                // Pin design
                 var svgPin = `
-                    <div class="flex flex-col items-center justify-center">
-                        <div class="bg-gradient-to-br from-orange-500 to-amber-600 text-white rounded-full p-2.5 shadow-lg border-2 border-white hover:scale-110 transition-transform duration-200">
-                            <i class="fa-solid fa-store text-[10px]"></i>
+                    <div class="pin-container flex flex-col items-center justify-center">
+                        <div class="bg-gradient-to-br from-amber-500 to-orange-600 text-white rounded-full p-2.5 shadow-lg border-2 border-white hover:scale-110 transition-transform duration-200">
+                            <i class="fa-solid fa-store text-[11px]"></i>
                         </div>
                         <div class="w-2 h-2 bg-orange-600 border border-white rotate-45 -mt-[3px] shadow"></div>
                     </div>
@@ -305,45 +408,11 @@
                     iconAnchor: [17, 34]
                 });
 
-                // Generate search queries that clean up the branch name for accurate local business matches
-                var searchName = loc.name.replace(/\s*-\s*/g, ', ');
-                var googleSearchUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchName)}`;
-                var directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${loc.lat},${loc.lng}`;
+                var marker = L.marker([loc.lat, loc.lng], { icon: customIcon }).addTo(map);
 
-                // Select standard fallback image if KML metadata lacks photo uploads
-                var displayPhoto = loc.img || `https://images.unsplash.com/photo-1509440159596-0249088772ff?q=80&w=600&auto=format&fit=crop`;
-
-                // Beautifully formatted premium GMB profile card replacing the empty map
-                var popupContent = `
-                    <div class="w-[300px] bg-white overflow-hidden flex flex-col rounded-2xl">
-                        <!-- Card Cover Photo -->
-                        <div class="w-full h-32 relative bg-slate-100 overflow-hidden">
-                            <img src="${displayPhoto}" class="w-full h-full object-cover" onerror="this.src='https://images.unsplash.com/photo-1509440159596-0249088772ff?q=80&w=600&auto=format&fit=crop'">
-                            <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
-                            <span class="absolute bottom-3 left-3 bg-orange-500 text-white text-[9px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider">King's Bakeshop</span>
-                        </div>
-                        
-                        <!-- Details Panel -->
-                        <div class="p-4 flex flex-col gap-2">
-                            <h4 class="font-bold text-slate-800 text-[13px] leading-tight">${loc.name}</h4>
-                            <p class="text-[11px] text-slate-500 leading-relaxed line-clamp-3">${loc.desc}</p>
-                        </div>
-
-                        <!-- Action Buttons Section -->
-                        <div class="p-3 bg-slate-50 border-t border-slate-100 flex gap-2">
-                            <a href="${directionsUrl}" target="_blank" class="flex-1 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-[10px] font-bold text-center flex items-center justify-center gap-1.5 transition-all">
-                                <i class="fa-solid fa-diamond-turn-right text-[10px]"></i> Get Directions
-                            </a>
-                            <a href="${googleSearchUrl}" target="_blank" class="flex-1 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 text-[10px] font-bold text-center flex items-center justify-center gap-1.5 transition-all">
-                                <i class="fa-solid fa-circle-info text-[10px]"></i> View Profile
-                            </a>
-                        </div>
-                    </div>
-                `;
-
-                var marker = L.marker([loc.lat, loc.lng], { icon: customIcon })
-                    .bindPopup(popupContent)
-                    .addTo(map);
+                marker.on('click', function() {
+                    openSidebar(loc, marker);
+                });
 
                 activeMarkers.push(marker);
                 bounds.push([loc.lat, loc.lng]);
@@ -354,37 +423,69 @@
             }
         }
 
+        function openSidebar(loc, marker) {
+            // Remove previous focus states
+            if (activeMarkerNode) {
+                const el = activeMarkerNode.getElement();
+                if (el) el.classList.remove('active-pin-halo');
+            }
+
+            // Apply focus selection halo (corresponds to image_db3751.jpg highlight)
+            activeMarkerNode = marker;
+            const el = marker.getElement();
+            if (el) {
+                el.classList.add('active-pin-halo');
+            }
+
+            // Populate Sidebar Elements
+            document.getElementById('sidebar-photo').src = loc.img || "https://images.unsplash.com/photo-1509440159596-0249088772ff?q=80&w=600&auto=format&fit=crop";
+            document.getElementById('sidebar-title').textContent = loc.name;
+            document.getElementById('sidebar-meta-name').textContent = loc.name;
+            document.getElementById('sidebar-address').textContent = loc.address;
+            document.getElementById('sidebar-phone').textContent = loc.phone;
+
+            var directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${loc.lat},${loc.lng}`;
+            document.getElementById('sidebar-directions-btn').href = directionsUrl;
+
+            // Optional description display
+            var descContainer = document.getElementById('sidebar-desc-container');
+            if (loc.desc && loc.desc.length > 3) {
+                document.getElementById('sidebar-description').textContent = loc.desc;
+                descContainer.classList.remove('hidden');
+            } else {
+                descContainer.classList.add('hidden');
+            }
+
+            // Slide open the drawer panel
+            var sidebar = document.getElementById('detail-sidebar');
+            sidebar.classList.remove('sidebar-hidden');
+            sidebar.classList.add('sidebar-visible');
+
+            // Slightly offset center pan so map looks balanced with sidebar open
+            var latOffset = loc.lat;
+            var lngOffset = window.innerWidth > 640 ? loc.lng - 0.015 : loc.lng;
+            map.panTo([latOffset, lngOffset], { animate: true, duration: 0.6 });
+        }
+
+        function closeSidebar() {
+            var sidebar = document.getElementById('detail-sidebar');
+            sidebar.classList.add('sidebar-hidden');
+            sidebar.classList.remove('sidebar-visible');
+
+            // Clear selected marker halo
+            if (activeMarkerNode) {
+                const el = activeMarkerNode.getElement();
+                if (el) el.classList.remove('active-pin-halo');
+                activeMarkerNode = null;
+            }
+        }
+
         function hideLoader() {
             var loader = document.getElementById('loading-overlay');
             loader.style.opacity = '0';
             setTimeout(() => {
                 loader.style.display = 'none';
             }, 700);
-        }
-
-        function showFallbackUI() {
-            document.getElementById('loading-overlay').style.display = 'none';
-            document.getElementById('fallback-ui').classList.remove('hidden');
-        }
-
-        function setupFallbackReader() {
-            var uploader = document.getElementById('fallback-uploader');
-            uploader.addEventListener('change', function(e) {
-                var file = e.target.files[0];
-                if (!file) return;
-
-                var reader = new FileReader();
-                reader.onload = function(evt) {
-                    var parsed = parseKML(evt.target.result);
-                    if (parsed.length > 0) {
-                        plotMarkers(parsed);
-                        document.getElementById('fallback-ui').classList.add('hidden');
-                    } else {
-                        alert("The file uploaded doesn't seem to contain valid geographic coordinates.");
-                    }
-                };
-                reader.readAsText(file);
-            });
         }
     </script>
 </body>
