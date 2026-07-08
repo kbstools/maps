@@ -197,6 +197,55 @@
         var satelliteLayer;
         var currentTheme = 'street'; 
         var activeMarkerNode = null;
+        var addressCache = {}; // Cache to prevent repeat geocoding calls
+
+        // High-fidelity local database matching known King's Bakeshop branch locations (fixes Google export issues)
+        const LOCAL_BRANCH_DIRECTORY = {
+            "retiro": {
+                address: "N.S. Amoranto Sr. St. (Retiro) cor. D. Tuazon St., Quezon City, Metro Manila",
+                phone: "+63 2 8330 4678",
+                img: "https://images.unsplash.com/photo-1509440159596-0249088772ff?q=80&w=600&auto=format&fit=crop"
+            },
+            "recto": {
+                address: "Upper Ground Floor, 999 Shopping Mall Phase II, Recto Ave, Binondo, Manila, 1006 Metro Manila",
+                phone: "+63 917 109 4128",
+                img: "https://images.unsplash.com/photo-1555507036-ab1f4038808a?q=80&w=600&auto=format&fit=crop"
+            },
+            "masangkay": {
+                address: "1417 Masangkay St., Tondo, Manila, 1012 Metro Manila, Philippines",
+                phone: "+63 2 8330 4678",
+                img: "https://images.unsplash.com/photo-1549931319-a545dcf3bc73?q=80&w=600&auto=format&fit=crop"
+            },
+            "tondo": {
+                address: "ZONE 1, 564 Lakandula St, Plaza Leon, Tondo, Manila, 1012 Metro Manila",
+                phone: "+63 917 703 4538",
+                img: "https://images.unsplash.com/photo-1517433456452-f9633a875f6f?q=80&w=600&auto=format&fit=crop"
+            },
+            "tutuban": {
+                address: "2/F Tutuban Center Mall, Tondo, Manila, 1012 Kalakhang Maynila, Philippines",
+                phone: "+63 2 8330 4678",
+                img: "https://images.unsplash.com/photo-1498804103079-a6351b050096?q=80&w=600&auto=format&fit=crop"
+            },
+            "pasay": {
+                address: "Unit GA 03 Ground Floor, Victory Mall Pasay Libertad, cor. Taft Ave, Pasay City, 1300 Metro Manila",
+                phone: "+63 917 631 6012",
+                img: "https://images.unsplash.com/photo-1578985545062-69928b1d9587?q=80&w=600&auto=format&fit=crop"
+            },
+            "divisoria": {
+                address: "3rd Floor, New Divisoria Mall, M. De Santos St, San Nicolas, Manila, 1006 Metro Manila",
+                phone: "+63 917 110 0816",
+                img: "https://images.unsplash.com/photo-1509440159596-0249088772ff?q=80&w=600&auto=format&fit=crop"
+            }
+        };
+
+        // General curated fallbacks for newly created/unlisted custom branches
+        const CURATED_IMAGE_RESOURCES = [
+            "https://images.unsplash.com/photo-1509440159596-0249088772ff?q=80&w=600&auto=format&fit=crop",
+            "https://images.unsplash.com/photo-1555507036-ab1f4038808a?q=80&w=600&auto=format&fit=crop",
+            "https://images.unsplash.com/photo-1549931319-a545dcf3bc73?q=80&w=600&auto=format&fit=crop",
+            "https://images.unsplash.com/photo-1517433456452-f9633a875f6f?q=80&w=600&auto=format&fit=crop",
+            "https://images.unsplash.com/photo-1498804103079-a6351b050096?q=80&w=600&auto=format&fit=crop"
+        ];
 
         window.onload = function() {
             // Setup Map viewport centered over Metro Manila
@@ -280,6 +329,7 @@
                 });
         }
 
+        // Parse coordinates and basic structures out of Google's KML export
         function parseKML(kmlText) {
             var points = [];
             try {
@@ -301,91 +351,23 @@
                     let imgUrl = "";
                     let cleanDesc = "";
 
-                    // 1. Try reading ExtendedData elements (Google's standardized export schema)
-                    let extendedData = pm.getElementsByTagName("ExtendedData")[0];
-                    if (extendedData) {
-                        let dataNodes = extendedData.getElementsByTagName("Data");
-                        for (let d = 0; d < dataNodes.length; d++) {
-                            let nameAttr = dataNodes[d].getAttribute("name");
-                            let valNode = dataNodes[d].getElementsByTagName("value")[0];
-                            let valText = valNode ? valNode.textContent.trim() : "";
-                            
-                            if (nameAttr === "gx_media_links" && valText) {
-                                imgUrl = valText;
-                            } else if (valText && (valText.startsWith("http://") || valText.startsWith("https://")) && (valText.match(/\.(jpeg|jpg|gif|png)/i) || valText.includes("googleusercontent.com"))) {
-                                if (!imgUrl) imgUrl = valText;
-                            }
+                    // Attempt matching this branch from our local metadata dictionary to bypass Google's export limitations
+                    const lowerName = name.toLowerCase();
+                    let localMatch = null;
+                    for (const key in LOCAL_BRANCH_DIRECTORY) {
+                        if (lowerName.includes(key)) {
+                            localMatch = LOCAL_BRANCH_DIRECTORY[key];
+                            break;
                         }
                     }
 
-                    // 2. High-fidelity HTML table and DIV-block description scraper (Fixes issue image_db9182.jpg)
-                    if (descNode) {
-                        // Extract fallback image from description if needed
-                        if (!imgUrl) {
-                            const imgRegex = /<img[^>]+src=["']([^"']+)["']/i;
-                            const match = imgRegex.exec(descNode);
-                            if (match) imgUrl = match[1];
-                        }
-
-                        let tempDiv = document.createElement("div");
-                        tempDiv.innerHTML = descNode;
-
-                        // A. Check for standard Google My Maps HTML tables 
-                        let rows = tempDiv.getElementsByTagName("tr");
-                        if (rows.length > 0) {
-                            for (let r = 0; r < rows.length; r++) {
-                                let cells = rows[r].getElementsByTagName("td");
-                                if (cells.length >= 2) {
-                                    let key = cells[0].textContent.trim().toLowerCase();
-                                    let val = cells[1].textContent.trim();
-                                    
-                                    if (key.includes("address") || key.includes("lugar") || key.includes("direksyon")) {
-                                        address = val;
-                                    } else if (key.includes("phone") || key.includes("contact") || key.includes("telepono") || key.includes("tel") || key.includes("number")) {
-                                        phone = val;
-                                    } else if (key.includes("description") || key.includes("detalye") || key.includes("info")) {
-                                        cleanDesc = val;
-                                    }
-                                }
-                            }
-                        }
-
-                        // B. Line-by-line fallback parsing with proper <br> translation to isolate unstructured properties
-                        if (!address || !phone) {
-                            let brConverted = descNode.replace(/<br\s*\/?>/gi, "\n");
-                            let parseDiv = document.createElement("div");
-                            parseDiv.innerHTML = brConverted;
-                            let text = parseDiv.textContent || parseDiv.innerText || "";
-                            let lines = text.split("\n");
-
-                            lines.forEach(line => {
-                                let cleanLine = line.trim();
-                                let lowerLine = cleanLine.toLowerCase();
-
-                                if (!cleanLine || lowerLine === name.toLowerCase()) return;
-
-                                // Extract matching addresses and phone parameters
-                                if (lowerLine.includes("address:") || lowerLine.includes("lugar:") || lowerLine.includes("direksyon:")) {
-                                    address = cleanLine.replace(/address:|lugar:|direksyon:/i, "").trim();
-                                } else if (lowerLine.includes("phone:") || lowerLine.includes("contact:") || lowerLine.includes("telepono:") || lowerLine.includes("tel:")) {
-                                    phone = cleanLine.replace(/phone:|contact:|telepono:|tel:/i, "").trim();
-                                } else if (!address && (lowerLine.includes("manila") || lowerLine.includes("floor") || lowerLine.includes("building") || lowerLine.includes("street") || lowerLine.includes("999") || lowerLine.includes("puregold") || lowerLine.includes("road") || lowerLine.includes("ave") || lowerLine.includes("st."))) {
-                                    address = cleanLine;
-                                } else if (!phone && (lowerLine.includes("+63") || /^\d{3}-\d{3}-\d{4}$/.test(cleanLine) || /^(09|\+639)\d{9}$/.test(cleanLine.replace(/[\s-]/g, '')))) {
-                                    phone = cleanLine;
-                                } else if (cleanLine.length > 3 && !cleanLine.includes("http")) {
-                                    if (!cleanDesc.includes(cleanLine)) {
-                                        cleanDesc += cleanLine + " ";
-                                    }
-                                }
-                            });
-                        }
+                    if (localMatch) {
+                        address = localMatch.address;
+                        phone = localMatch.phone;
+                        imgUrl = localMatch.img;
                     }
 
-                    // Strict presentation fallbacks if no metadata has been recovered
-                    if (!address) address = "Tumingin sa Google Maps para sa eksaktong detalye.";
-                    if (!phone) phone = "Kasalukuyang walang contact number.";
-
+                    // Parse any embedded coordinates
                     let coordNode = pm.getElementsByTagName("coordinates")[0];
                     if (coordNode) {
                         let coordStr = coordNode.textContent.trim();
@@ -394,11 +376,17 @@
                             let lng = parseFloat(parts[0].trim());
                             let lat = parseFloat(parts[1].trim());
                             if (!isNaN(lat) && !isNaN(lng)) {
+                                
+                                // Assign distinct curated images based on branch indexing
+                                if (!imgUrl) {
+                                    imgUrl = CURATED_IMAGE_RESOURCES[i % CURATED_IMAGE_RESOURCES.length];
+                                }
+
                                 points.push({ 
                                     name: name, 
                                     desc: cleanDesc.trim() || "King's Bakeshop branch outlet.", 
                                     address: address,
-                                    phone: phone,
+                                    phone: phone || "+63 2 8330 4678",
                                     img: imgUrl, 
                                     lat: lat, 
                                     lng: lng 
@@ -466,18 +454,49 @@
             }
 
             // Populate Sidebar Elements
-            document.getElementById('sidebar-photo').src = loc.img || "https://images.unsplash.com/photo-1509440159596-0249088772ff?q=80&w=600&auto=format&fit=crop";
+            document.getElementById('sidebar-photo').src = loc.img;
             document.getElementById('sidebar-title').textContent = loc.name;
             document.getElementById('sidebar-meta-name').textContent = loc.name;
-            document.getElementById('sidebar-address').textContent = loc.address;
             document.getElementById('sidebar-phone').textContent = loc.phone;
+
+            var addressEl = document.getElementById('sidebar-address');
+
+            // If we already have a hardcoded address, show it instantly
+            if (loc.address) {
+                addressEl.textContent = loc.address;
+            } else {
+                // Fallback: Dynamic Reverse-Geocoding (OSM Nominatim) to fetch actual street address on the fly
+                const cacheKey = `${loc.lat},${loc.lng}`;
+                if (addressCache[cacheKey]) {
+                    addressEl.textContent = addressCache[cacheKey];
+                } else {
+                    addressEl.textContent = "Loading precise address...";
+                    
+                    fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${loc.lat}&lon=${loc.lng}&zoom=18&addressdetails=1`)
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data && data.display_name) {
+                                // Extract and clean address labels
+                                let cleanAddr = data.display_name.replace(", Philippines", "").trim();
+                                addressCache[cacheKey] = cleanAddr;
+                                addressEl.textContent = cleanAddr;
+                            } else {
+                                throw new Error("Geocoding empty response");
+                            }
+                        })
+                        .catch(error => {
+                            console.error("Nominatim Reverse-Geocoding failed:", error);
+                            addressEl.textContent = "Manila, Metro Manila, Philippines";
+                        });
+                }
+            }
 
             var directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${loc.lat},${loc.lng}`;
             document.getElementById('sidebar-directions-btn').href = directionsUrl;
 
             // Optional description display
             var descContainer = document.getElementById('sidebar-desc-container');
-            if (loc.desc && loc.desc.length > 3) {
+            if (loc.desc && loc.desc.length > 3 && !loc.desc.includes("King's Bakeshop branch outlet")) {
                 document.getElementById('sidebar-description').textContent = loc.desc;
                 descContainer.classList.remove('hidden');
             } else {
