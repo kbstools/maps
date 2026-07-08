@@ -134,9 +134,9 @@
 
             <!-- Custom Info Segment -->
             <div class="border-t border-slate-100 pt-4">
-                <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Mga detalye mula sa Google Maps</span>
+                <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider font-semibold">Mga detalye mula sa Google Maps</span>
                 
-                <div class="mt-3 space-y-4">
+                <div class="mt-3 space-y-4 font-normal">
                     <!-- Address Block -->
                     <div class="flex items-start gap-3">
                         <div class="text-[#c62828] mt-0.5"><i class="fa-solid fa-location-dot"></i></div>
@@ -266,7 +266,7 @@
                 .catch(err => {
                     console.error("Live Google My Maps Sync failed, using local fallback...", err);
                     statusEl.textContent = "Using cached offline layers...";
-                    // Fallback to local map.xml/map.kml if present in folder
+                    // Fallback to local map.kml if present in directory
                     fetch('map.kml')
                         .then(res => res.text())
                         .then(fallbackText => {
@@ -299,6 +299,7 @@
                     let address = "";
                     let phone = "";
                     let imgUrl = "";
+                    let cleanDesc = "";
 
                     // 1. Try reading ExtendedData elements (Google's standardized export schema)
                     let extendedData = pm.getElementsByTagName("ExtendedData")[0];
@@ -309,54 +310,81 @@
                             let valNode = dataNodes[d].getElementsByTagName("value")[0];
                             let valText = valNode ? valNode.textContent.trim() : "";
                             
-                            if (nameAttr === "gx_media_links") {
+                            if (nameAttr === "gx_media_links" && valText) {
                                 imgUrl = valText;
-                            } else if (nameAttr === "address") {
-                                address = valText;
-                            } else if (nameAttr === "phone" || nameAttr === "phone_number") {
-                                phone = valText;
+                            } else if (valText && (valText.startsWith("http://") || valText.startsWith("https://")) && (valText.match(/\.(jpeg|jpg|gif|png)/i) || valText.includes("googleusercontent.com"))) {
+                                if (!imgUrl) imgUrl = valText;
                             }
                         }
                     }
 
-                    // 2. Fallbacks for individual tag nodes
-                    if (!address) {
-                        let addrNode = pm.getElementsByTagName("address")[0];
-                        if (addrNode) address = addrNode.textContent.trim();
-                    }
-                    if (!phone) {
-                        let phoneNode = pm.getElementsByTagName("phoneNumber")[0];
-                        if (phoneNode) phone = phoneNode.textContent.trim();
-                    }
-
-                    // 3. Fallback to parse from Description HTML if description CDATA is populated
-                    let cleanDesc = "";
+                    // 2. High-fidelity HTML table and DIV-block description scraper (Fixes issue image_db9182.jpg)
                     if (descNode) {
+                        // Extract fallback image from description if needed
                         if (!imgUrl) {
                             const imgRegex = /<img[^>]+src=["']([^"']+)["']/i;
                             const match = imgRegex.exec(descNode);
                             if (match) imgUrl = match[1];
                         }
-                        
+
                         let tempDiv = document.createElement("div");
                         tempDiv.innerHTML = descNode;
-                        const text = tempDiv.textContent || tempDiv.innerText || "";
-                        const lines = text.split("\n");
-                        
-                        lines.forEach(line => {
-                            if (!address && (line.toLowerCase().includes("address:") || line.toLowerCase().includes("lugar:") || line.toLowerCase().includes("manila") || line.toLowerCase().includes("999") || line.toLowerCase().includes("floor"))) {
-                                address = line.replace(/address:|lugar:/i, "").trim();
-                            } else if (!phone && (line.toLowerCase().includes("phone:") || line.toLowerCase().includes("contact:") || line.toLowerCase().includes("+63") || line.toLowerCase().includes("telepono"))) {
-                                phone = line.replace(/phone:|contact:|telepono:/i, "").trim();
-                            } else if (line.trim().length > 3 && !line.includes("http")) {
-                                cleanDesc += line.trim() + " ";
+
+                        // A. Check for standard Google My Maps HTML tables 
+                        let rows = tempDiv.getElementsByTagName("tr");
+                        if (rows.length > 0) {
+                            for (let r = 0; r < rows.length; r++) {
+                                let cells = rows[r].getElementsByTagName("td");
+                                if (cells.length >= 2) {
+                                    let key = cells[0].textContent.trim().toLowerCase();
+                                    let val = cells[1].textContent.trim();
+                                    
+                                    if (key.includes("address") || key.includes("lugar") || key.includes("direksyon")) {
+                                        address = val;
+                                    } else if (key.includes("phone") || key.includes("contact") || key.includes("telepono") || key.includes("tel") || key.includes("number")) {
+                                        phone = val;
+                                    } else if (key.includes("description") || key.includes("detalye") || key.includes("info")) {
+                                        cleanDesc = val;
+                                    }
+                                }
                             }
-                        });
+                        }
+
+                        // B. Line-by-line fallback parsing with proper <br> translation to isolate unstructured properties
+                        if (!address || !phone) {
+                            let brConverted = descNode.replace(/<br\s*\/?>/gi, "\n");
+                            let parseDiv = document.createElement("div");
+                            parseDiv.innerHTML = brConverted;
+                            let text = parseDiv.textContent || parseDiv.innerText || "";
+                            let lines = text.split("\n");
+
+                            lines.forEach(line => {
+                                let cleanLine = line.trim();
+                                let lowerLine = cleanLine.toLowerCase();
+
+                                if (!cleanLine || lowerLine === name.toLowerCase()) return;
+
+                                // Extract matching addresses and phone parameters
+                                if (lowerLine.includes("address:") || lowerLine.includes("lugar:") || lowerLine.includes("direksyon:")) {
+                                    address = cleanLine.replace(/address:|lugar:|direksyon:/i, "").trim();
+                                } else if (lowerLine.includes("phone:") || lowerLine.includes("contact:") || lowerLine.includes("telepono:") || lowerLine.includes("tel:")) {
+                                    phone = cleanLine.replace(/phone:|contact:|telepono:|tel:/i, "").trim();
+                                } else if (!address && (lowerLine.includes("manila") || lowerLine.includes("floor") || lowerLine.includes("building") || lowerLine.includes("street") || lowerLine.includes("999") || lowerLine.includes("puregold") || lowerLine.includes("road") || lowerLine.includes("ave") || lowerLine.includes("st."))) {
+                                    address = cleanLine;
+                                } else if (!phone && (lowerLine.includes("+63") || /^\d{3}-\d{3}-\d{4}$/.test(cleanLine) || /^(09|\+639)\d{9}$/.test(cleanLine.replace(/[\s-]/g, '')))) {
+                                    phone = cleanLine;
+                                } else if (cleanLine.length > 3 && !cleanLine.includes("http")) {
+                                    if (!cleanDesc.includes(cleanLine)) {
+                                        cleanDesc += cleanLine + " ";
+                                    }
+                                }
+                            });
+                        }
                     }
 
-                    // Strict presentation defaults
-                    if (!address) address = "Refer to Google Maps for exact location details.";
-                    if (!phone) phone = "Contact numbers currently unavailable.";
+                    // Strict presentation fallbacks if no metadata has been recovered
+                    if (!address) address = "Tumingin sa Google Maps para sa eksaktong detalye.";
+                    if (!phone) phone = "Kasalukuyang walang contact number.";
 
                     let coordNode = pm.getElementsByTagName("coordinates")[0];
                     if (coordNode) {
@@ -391,7 +419,7 @@
             var bounds = [];
 
             locations.forEach(loc => {
-                // Pin design
+                // Custom pin style
                 var svgPin = `
                     <div class="pin-container flex flex-col items-center justify-center">
                         <div class="bg-gradient-to-br from-amber-500 to-orange-600 text-white rounded-full p-2.5 shadow-lg border-2 border-white hover:scale-110 transition-transform duration-200">
